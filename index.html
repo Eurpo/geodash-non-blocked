@@ -3,50 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JS Dash</title>
+    <title>JS Dash - Vehicles & Gravity</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; color: white; font-family: sans-serif; }
-        canvas { display: block; background-color: #2c3e50; margin: 0 auto; border-bottom: 5px solid #fff; }
+        canvas { display: block; background-color: #2c3e50; margin: 0 auto; border-bottom: 5px solid #fff; border-top: 5px solid #fff; }
         
-        /* UI Overlays */
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; justify-content: center; align-items: center; }
-        .menu { background: rgba(0, 0, 0, 0.8); padding: 20px; border-radius: 10px; text-align: center; pointer-events: auto; display: none; }
+        .menu { background: rgba(0, 0, 0, 0.85); padding: 30px; border-radius: 10px; text-align: center; pointer-events: auto; display: none; border: 2px solid #fff; }
         .menu.active { display: block; }
         
-        button { background: #3498db; color: white; border: none; padding: 10px 20px; margin: 5px; font-size: 16px; cursor: pointer; border-radius: 5px; }
+        button { background: #3498db; color: white; border: none; padding: 12px 24px; margin: 8px; font-size: 16px; font-weight: bold; cursor: pointer; border-radius: 5px; }
         button:hover { background: #2980b9; }
         
-        #hud { position: absolute; top: 10px; left: 10px; pointer-events: none; font-size: 18px; }
+        #hud { position: absolute; top: 10px; left: 10px; pointer-events: none; font-size: 18px; line-height: 1.5; text-shadow: 2px 2px 2px #000; }
     </style>
 </head>
 <body>
 
     <div id="hud">
-        Press <strong>Space/Click/Up</strong> to Jump<br>
+        <strong>Hold Space/Click</strong> to Fly/Wave<br>
         Press <strong>ESC</strong> to Pause<br>
-        Press <strong>P</strong> to toggle Practice Mode<br>
-        Press <strong>Z</strong> to set Checkpoint (Practice Mode)
+        Press <strong>Z</strong> for Practice Checkpoint
     </div>
 
     <canvas id="gameCanvas" width="800" height="400"></canvas>
 
     <div id="ui-layer">
-        <div id="pauseMenu" class="menu">
-            <h2>Game Paused</h2>
-            <button onclick="resumeGame()">Resume</button>
-            <button onclick="openSkins()">Change Skin</button>
+        <div id="pauseMenu" class="menu active">
+            <h2>JS Dash</h2>
+            <button onclick="resumeGame()">Play Level</button><br>
             <button onclick="resetLevel()">Restart Level</button>
-        </div>
-
-        <div id="skinsMenu" class="menu">
-            <h2>Choose Skin</h2>
-            <div style="margin-bottom: 15px;">
-                <button style="background: #e74c3c;" onclick="setSkin('#e74c3c')">Red</button>
-                <button style="background: #f1c40f; color: black;" onclick="setSkin('#f1c40f')">Yellow</button>
-                <button style="background: #2ecc71;" onclick="setSkin('#2ecc71')">Green</button>
-                <button style="background: #9b59b6;" onclick="setSkin('#9b59b6')">Purple</button>
-            </div>
-            <button onclick="closeSkins()">Back</button>
         </div>
     </div>
 
@@ -54,89 +40,141 @@
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
 
-        // Game State
-        let isPaused = false;
-        let isPracticeMode = false;
+        let isPaused = true;
+        let isHolding = false; // Tracks if you are holding jump
         let cameraX = 0;
+        
+        // Boundaries
+        const groundY = 350;
+        const ceilingY = 50;
 
-        // Player Setup
         const player = {
-            x: 100,
-            y: 0,
-            size: 30,
-            color: "#f1c40f",
-            speed: 5,
-            vy: 0,
-            gravity: 0.8,
-            jumpPower: -12,
+            x: 100, y: groundY - 30, size: 30, color: "#f1c40f",
+            speed: 6, vy: 0,
+            mode: "cube", // Can be "cube", "ship", or "wave"
+            gravityMult: 1, // 1 is normal, -1 is upside down
             isGrounded: false,
-            checkpointX: 100,
-            checkpointY: 0
+            checkpoint: { x: 100, y: groundY - 30, mode: "cube", gravityMult: 1 }
         };
 
-        // Level Design (Ground Y is at 300)
-        const groundY = 300;
-        const obstacles = [
+        // --- Level Design (Portals Included!) ---
+        const level = [
             { x: 500, y: groundY, type: "spike" },
-            { x: 800, y: groundY, type: "spike" },
-            { x: 840, y: groundY, type: "spike" },
-            { x: 1200, y: groundY - 50, type: "pad" } // Yellow Pad
+            // Portal to Ship Mode
+            { x: 800, y: groundY - 100, type: "portal_ship" },
+            { x: 1100, y: groundY, type: "spike" },
+            { x: 1100, y: ceilingY, type: "spike_down" }, // Spikes on the ceiling!
+            { x: 1400, y: groundY, type: "spike" },
+            
+            // Portal to Wave Mode
+            { x: 1800, y: groundY - 150, type: "portal_wave" },
+            { x: 2100, y: groundY, type: "spike" },
+            { x: 2300, y: ceilingY, type: "spike_down" },
+            
+            // Portal back to Cube + Gravity Flipper!
+            { x: 2800, y: groundY - 150, type: "portal_cube" },
+            { x: 2900, y: groundY - 150, type: "portal_gravity_flip" },
+            
+            // Upside down spikes
+            { x: 3300, y: ceilingY, type: "spike_down" },
+            { x: 3600, y: ceilingY, type: "spike_down" }
         ];
 
         // --- Input Handling ---
         window.addEventListener("keydown", (e) => {
-            if ((e.code === "Space" || e.code === "ArrowUp") && player.isGrounded && !isPaused) {
-                player.vy = player.jumpPower;
-                player.isGrounded = false;
+            if (e.code === "Space" || e.code === "ArrowUp") {
+                isHolding = true;
+                // Cube Jump Logic (Only triggers on the initial press)
+                if (player.mode === "cube" && player.isGrounded && !isPaused) {
+                    player.vy = -13 * player.gravityMult;
+                    player.isGrounded = false;
+                }
             }
             if (e.code === "Escape") togglePause();
-            if (e.code === "KeyP") togglePracticeMode();
-            if (e.code === "KeyZ" && isPracticeMode && !isPaused) setCheckpoint();
+            if (e.code === "KeyZ" && !isPaused) setCheckpoint();
+        });
+
+        window.addEventListener("keyup", (e) => {
+            if (e.code === "Space" || e.code === "ArrowUp") isHolding = false;
         });
 
         window.addEventListener("mousedown", () => {
-            if (player.isGrounded && !isPaused) {
-                player.vy = player.jumpPower;
+            isHolding = true;
+            if (player.mode === "cube" && player.isGrounded && !isPaused) {
+                player.vy = -13 * player.gravityMult;
                 player.isGrounded = false;
             }
         });
+        window.addEventListener("mouseup", () => isHolding = false);
 
-        // --- Core Logic ---
+        // --- Core Game Logic ---
         function update() {
             if (isPaused) return;
 
-            // Movement & Physics
             player.x += player.speed;
-            player.vy += player.gravity;
+            cameraX = player.x - 150; 
+
+            // --- Physics Engine ---
+            if (player.mode === "cube") {
+                player.vy += 0.9 * player.gravityMult;
+            } 
+            else if (player.mode === "ship") {
+                if (isHolding) {
+                    player.vy -= 0.6 * player.gravityMult; // Upward Thrust
+                }
+                player.vy += 0.3 * player.gravityMult; // Gravity pulls you down
+                player.vy *= 0.95; // Air resistance so you don't fly infinitely fast
+            } 
+            else if (player.mode === "wave") {
+                // Wave is instant diagonal movement
+                player.vy = isHolding ? (-8 * player.gravityMult) : (8 * player.gravityMult);
+            }
+
             player.y += player.vy;
 
-            // Ground Collision
-            if (player.y + player.size >= groundY) {
+            // --- Floor & Ceiling Collisions ---
+            let currentFloor = player.gravityMult === 1 ? groundY : ceilingY;
+            let currentCeiling = player.gravityMult === 1 ? ceilingY : groundY;
+
+            // Hitting the Floor
+            if (player.gravityMult === 1 && player.y + player.size >= groundY) {
                 player.y = groundY - player.size;
+                player.vy = 0;
+                player.isGrounded = true;
+            } else if (player.gravityMult === -1 && player.y <= ceilingY) {
+                player.y = ceilingY;
                 player.vy = 0;
                 player.isGrounded = true;
             } else {
                 player.isGrounded = false;
             }
 
-            // Camera Follows Player
-            cameraX = player.x - 150; 
+            // Hitting the Ceiling (Kills you if you are a Wave or Ship, acts as wall for Cube)
+            if (player.gravityMult === 1 && player.y <= ceilingY) {
+                if (player.mode !== "cube") die(); 
+                else { player.y = ceilingY; player.vy = 0; }
+            } else if (player.gravityMult === -1 && player.y + player.size >= groundY) {
+                 if (player.mode !== "cube") die(); 
+                 else { player.y = groundY - player.size; player.vy = 0; }
+            }
 
-            // Obstacle Collision
-            for (let obs of obstacles) {
+            // --- Obstacle & Portal Collisions ---
+            for (let obs of level) {
+                // Spikes
                 if (obs.type === "spike") {
-                    // Simple Box Collision for Spike
-                    if (player.x < obs.x + 30 && player.x + player.size > obs.x &&
-                        player.y + player.size > obs.y - 40) {
-                        die();
-                    }
-                } else if (obs.type === "pad") {
-                    // Bounce Pad Logic
-                    if (player.x < obs.x + 40 && player.x + player.size > obs.x &&
-                        player.y + player.size > obs.y && player.vy > 0) {
-                        player.vy = player.jumpPower * 1.3; // Bounce higher
-                        player.y = obs.y - player.size;
-                    }
+                    if (player.x < obs.x + 20 && player.x + player.size > obs.x + 10 && player.y + player.size > obs.y - 35) die();
+                } else if (obs.type === "spike_down") {
+                    if (player.x < obs.x + 20 && player.x + player.size > obs.x + 10 && player.y < obs.y + 35) die();
+                }
+                
+                // Portals (Using center-point collision for cleaner entering)
+                let playerCenterX = player.x + (player.size/2);
+                if (playerCenterX > obs.x && playerCenterX < obs.x + 40) {
+                    if (obs.type === "portal_ship") player.mode = "ship";
+                    if (obs.type === "portal_wave") player.mode = "wave";
+                    if (obs.type === "portal_cube") player.mode = "cube";
+                    if (obs.type === "portal_gravity_flip") player.gravityMult = -1;
+                    if (obs.type === "portal_gravity_normal") player.gravityMult = 1;
                 }
             }
         }
@@ -144,122 +182,18 @@
         // --- Rendering ---
         function draw() {
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Shift context by cameraX to create side-scrolling effect
             ctx.save();
             ctx.translate(-cameraX, 0);
 
-            // Draw Ground
+            // Draw Ground and Ceiling limits
             ctx.fillStyle = "#34495e";
             ctx.fillRect(cameraX, groundY, canvas.width + 100, canvas.height - groundY);
+            ctx.fillRect(cameraX, 0, canvas.width + 100, ceilingY);
 
-            // Draw Checkpoint Marker if in practice mode
-            if (isPracticeMode) {
-                ctx.fillStyle = "rgba(46, 204, 113, 0.5)";
-                ctx.fillRect(player.checkpointX, 0, 5, canvas.height);
-            }
-
-            // Draw Obstacles
-            for (let obs of obstacles) {
+            // Draw Obstacles & Portals
+            for (let obs of level) {
                 if (obs.type === "spike") {
-                    ctx.fillStyle = "red";
-                    ctx.beginPath();
-                    ctx.moveTo(obs.x, obs.y);
-                    ctx.lineTo(obs.x + 15, obs.y - 40);
-                    ctx.lineTo(obs.x + 30, obs.y);
-                    ctx.fill();
-                } else if (obs.type === "pad") {
-                    ctx.fillStyle = "yellow";
-                    ctx.fillRect(obs.x, obs.y, 40, 10);
-                }
-            }
-
-            // Draw Player
-            ctx.fillStyle = player.color;
-            ctx.fillRect(player.x, player.y, player.size, player.size);
-
-            ctx.restore();
-            
-            // Draw Practice Mode Indicator
-            if (isPracticeMode) {
-                ctx.fillStyle = "rgba(46, 204, 113, 0.8)";
-                ctx.font = "20px Arial";
-                ctx.fillText("PRACTICE MODE", canvas.width - 180, 30);
-            }
-        }
-
-        // --- Game Loop ---
-        function loop() {
-            update();
-            draw();
-            requestAnimationFrame(loop);
-        }
-
-        // --- Game Functions ---
-        function die() {
-            if (isPracticeMode) {
-                player.x = player.checkpointX;
-                player.y = player.checkpointY;
-                player.vy = 0;
-            } else {
-                resetLevel();
-            }
-        }
-
-        function resetLevel() {
-            player.x = 100;
-            player.y = 0;
-            player.vy = 0;
-            player.checkpointX = 100;
-            player.checkpointY = 0;
-            resumeGame();
-        }
-
-        function setCheckpoint() {
-            player.checkpointX = player.x;
-            player.checkpointY = player.y;
-            console.log("Checkpoint Set!");
-        }
-
-        function togglePracticeMode() {
-            isPracticeMode = !isPracticeMode;
-            if (!isPracticeMode) {
-                // Reset checkpoint to start if practice mode is turned off
-                player.checkpointX = 100;
-                player.checkpointY = 0;
-            }
-        }
-
-        // --- UI Menus ---
-        function togglePause() {
-            isPaused = !isPaused;
-            document.getElementById("pauseMenu").classList.toggle("active", isPaused);
-            document.getElementById("skinsMenu").classList.remove("active");
-        }
-
-        function resumeGame() {
-            isPaused = false;
-            document.getElementById("pauseMenu").classList.remove("active");
-            document.getElementById("skinsMenu").classList.remove("active");
-        }
-
-        function openSkins() {
-            document.getElementById("pauseMenu").classList.remove("active");
-            document.getElementById("skinsMenu").classList.add("active");
-        }
-
-        function closeSkins() {
-            document.getElementById("skinsMenu").classList.remove("active");
-            document.getElementById("pauseMenu").classList.add("active");
-        }
-
-        function setSkin(color) {
-            player.color = color;
-            closeSkins();
-        }
-
-        // Start the game!
-        loop();
-    </script>
-</body>
-</html>
+                    ctx.fillStyle = "red"; ctx.beginPath(); ctx.moveTo(obs.x, obs.y); ctx.lineTo(obs.x + 15, obs.y - 40); ctx.lineTo(obs.x + 30, obs.y); ctx.fill();
+                } else if (obs.type === "spike_down") {
+                    ctx.fillStyle = "red"; ctx.beginPath(); ctx.moveTo(obs.x, obs.y); ctx.lineTo(obs.x + 15, obs.y + 40); ctx.lineTo(obs.x + 30, obs.y); ctx.fill();
+                } else if (obs.type.startsWith("portal"))
