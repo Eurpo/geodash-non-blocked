@@ -3,36 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JS Dash - Vehicles & Gravity</title>
+    <title>JS Dash - Deadlocked + UFO</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #222; color: white; font-family: sans-serif; }
-        canvas { display: block; background-color: #2c3e50; margin: 0 auto; border-bottom: 5px solid #fff; border-top: 5px solid #fff; }
+        body { margin: 0; overflow: hidden; background-color: #111; color: white; font-family: sans-serif; }
+        canvas { display: block; background-color: #4a0000; margin: 0 auto; border-bottom: 5px solid #ff4757; border-top: 5px solid #ff4757; }
         
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; display: flex; justify-content: center; align-items: center; }
-        .menu { background: rgba(0, 0, 0, 0.85); padding: 30px; border-radius: 10px; text-align: center; pointer-events: auto; display: none; border: 2px solid #fff; }
+        .menu { background: rgba(0, 0, 0, 0.9); padding: 40px; border-radius: 10px; text-align: center; pointer-events: auto; display: none; border: 3px solid #ff4757; box-shadow: 0 0 20px #ff4757; }
         .menu.active { display: block; }
         
-        button { background: #3498db; color: white; border: none; padding: 12px 24px; margin: 8px; font-size: 16px; font-weight: bold; cursor: pointer; border-radius: 5px; }
-        button:hover { background: #2980b9; }
+        h1 { color: #ff4757; margin-top: 0; text-transform: uppercase; letter-spacing: 2px; }
+        button { background: #ff4757; color: white; border: none; padding: 15px 30px; margin: 10px; font-size: 18px; font-weight: bold; cursor: pointer; border-radius: 5px; text-transform: uppercase; }
+        button:hover { background: #ff6b81; transform: scale(1.05); transition: 0.1s; }
         
-        #hud { position: absolute; top: 10px; left: 10px; pointer-events: none; font-size: 18px; line-height: 1.5; text-shadow: 2px 2px 2px #000; }
+        #hud { position: absolute; top: 10px; left: 10px; pointer-events: none; font-size: 18px; line-height: 1.5; text-shadow: 2px 2px 2px #000; color: #ffeb3b; }
     </style>
 </head>
 <body>
 
     <div id="hud">
-        <strong>Hold Space/Click</strong> to Fly/Wave<br>
-        Press <strong>ESC</strong> to Pause<br>
-        Press <strong>Z</strong> for Practice Checkpoint
+        <strong>DEADLOCKED TRIBUTE</strong><br>
+        Hold Space/Click to Fly/Wave<br>
+        Tap to jump as UFO<br>
+        Press ESC to Pause
     </div>
 
     <canvas id="gameCanvas" width="800" height="400"></canvas>
 
     <div id="ui-layer">
         <div id="pauseMenu" class="menu active">
-            <h2>JS Dash</h2>
-            <button onclick="resumeGame()">Play Level</button><br>
-            <button onclick="resetLevel()">Restart Level</button>
+            <h1>Deadlocked</h1>
+            <p>Warning: High Speed & Audio!</p>
+            <button onclick="resumeGame()">Play</button><br>
+            <button onclick="resetLevel()">Restart</button>
         </div>
     </div>
 
@@ -40,139 +43,142 @@
         const canvas = document.getElementById("gameCanvas");
         const ctx = canvas.getContext("2d");
 
+        // --- Audio Setup ---
+        // Browsers block audio until the user clicks a button, which is why we play it in resumeGame()
+        const bgMusic = new Audio("deadlocked.mp3");
+        bgMusic.loop = true;
+
         let isPaused = true;
-        let isHolding = false; // Tracks if you are holding jump
+        let isHolding = false;
         let cameraX = 0;
         
-        // Boundaries
         const groundY = 350;
         const ceilingY = 50;
 
         const player = {
-            x: 100, y: groundY - 30, size: 30, color: "#f1c40f",
-            speed: 6, vy: 0,
-            mode: "cube", // Can be "cube", "ship", or "wave"
-            gravityMult: 1, // 1 is normal, -1 is upside down
+            x: 100, y: groundY - 30, size: 30, color: "#1dd1a1",
+            speed: 9, 
+            vy: 0,
+            mode: "cube", // "cube", "ship", "wave", "ufo"
+            gravityMult: 1,
             isGrounded: false,
             checkpoint: { x: 100, y: groundY - 30, mode: "cube", gravityMult: 1 }
         };
 
-        // --- Level Design (Portals Included!) ---
+        // --- Level Layout ---
         const level = [
             { x: 500, y: groundY, type: "spike" },
-            // Portal to Ship Mode
-            { x: 800, y: groundY - 100, type: "portal_ship" },
-            { x: 1100, y: groundY, type: "spike" },
-            { x: 1100, y: ceilingY, type: "spike_down" }, // Spikes on the ceiling!
-            { x: 1400, y: groundY, type: "spike" },
+            { x: 800, y: groundY, type: "spike" },
+            { x: 840, y: groundY, type: "spike" },
             
-            // Portal to Wave Mode
-            { x: 1800, y: groundY - 150, type: "portal_wave" },
-            { x: 2100, y: groundY, type: "spike" },
-            { x: 2300, y: ceilingY, type: "spike_down" },
+            // The First Wave
+            { x: 1300, y: groundY - 150, type: "portal_wave" },
+            { x: 1600, y: groundY, type: "spike" },
+            { x: 1600, y: ceilingY, type: "spike_down" },
+            { x: 1900, y: groundY, type: "spike" },
+            { x: 1900, y: ceilingY, type: "spike_down" },
+
+            // Upside Down Ship Transition
+            { x: 2500, y: groundY - 150, type: "portal_ship" },
+            { x: 2600, y: groundY - 150, type: "portal_gravity_flip" },
+            { x: 2900, y: ceilingY, type: "spike_down" },
+            { x: 3200, y: groundY, type: "spike" },
+            { x: 3500, y: ceilingY, type: "spike_down" },
             
-            // Portal back to Cube + Gravity Flipper!
-            { x: 2800, y: groundY - 150, type: "portal_cube" },
-            { x: 2900, y: groundY - 150, type: "portal_gravity_flip" },
+            // Back to Normal, into the UFO!
+            { x: 4000, y: groundY - 150, type: "portal_cube" },
+            { x: 4100, y: groundY - 150, type: "portal_gravity_normal" },
+            { x: 4300, y: groundY - 150, type: "portal_ufo" }, // NEW UFO PORTAL
             
-            // Upside down spikes
-            { x: 3300, y: ceilingY, type: "spike_down" },
-            { x: 3600, y: ceilingY, type: "spike_down" }
+            // UFO requires hopping over tall walls
+            { x: 4700, y: groundY, type: "spike" },
+            { x: 4700, y: groundY - 40, type: "spike" }, // Stacked spikes
+            { x: 5100, y: ceilingY, type: "spike_down" },
+            { x: 5100, y: ceilingY + 40, type: "spike_down" },
+            { x: 5500, y: groundY, type: "spike" },
+            { x: 5500, y: groundY - 40, type: "spike" },
+            { x: 5500, y: groundY - 80, type: "spike" }
         ];
 
         // --- Input Handling ---
-        window.addEventListener("keydown", (e) => {
-            if (e.code === "Space" || e.code === "ArrowUp") {
-                isHolding = true;
-                // Cube Jump Logic (Only triggers on the initial press)
-                if (player.mode === "cube" && player.isGrounded && !isPaused) {
-                    player.vy = -13 * player.gravityMult;
-                    player.isGrounded = false;
-                }
-            }
-            if (e.code === "Escape") togglePause();
-            if (e.code === "KeyZ" && !isPaused) setCheckpoint();
-        });
-
-        window.addEventListener("keyup", (e) => {
-            if (e.code === "Space" || e.code === "ArrowUp") isHolding = false;
-        });
-
-        window.addEventListener("mousedown", () => {
+        function handleActionStart() {
             isHolding = true;
-            if (player.mode === "cube" && player.isGrounded && !isPaused) {
-                player.vy = -13 * player.gravityMult;
+            if (isPaused) return;
+
+            if (player.mode === "cube" && player.isGrounded) {
+                player.vy = -14 * player.gravityMult;
                 player.isGrounded = false;
+            } else if (player.mode === "ufo") {
+                // UFO Flappy Bird Jump! (Can jump in mid-air)
+                player.vy = -10 * player.gravityMult; 
             }
+        }
+
+        window.addEventListener("keydown", (e) => {
+            if (e.code === "Space" || e.code === "ArrowUp") handleActionStart();
+            if (e.code === "Escape") togglePause();
         });
+        window.addEventListener("mousedown", handleActionStart);
+        
+        window.addEventListener("keyup", (e) => { if (e.code === "Space" || e.code === "ArrowUp") isHolding = false; });
         window.addEventListener("mouseup", () => isHolding = false);
 
-        // --- Core Game Logic ---
+        // --- Logic ---
         function update() {
             if (isPaused) return;
 
             player.x += player.speed;
             cameraX = player.x - 150; 
 
-            // --- Physics Engine ---
+            // Physics
             if (player.mode === "cube") {
-                player.vy += 0.9 * player.gravityMult;
+                player.vy += 1.2 * player.gravityMult;
             } 
             else if (player.mode === "ship") {
-                if (isHolding) {
-                    player.vy -= 0.6 * player.gravityMult; // Upward Thrust
-                }
-                player.vy += 0.3 * player.gravityMult; // Gravity pulls you down
-                player.vy *= 0.95; // Air resistance so you don't fly infinitely fast
+                if (isHolding) player.vy -= 0.8 * player.gravityMult;
+                player.vy += 0.4 * player.gravityMult;
+                player.vy *= 0.94;
             } 
             else if (player.mode === "wave") {
-                // Wave is instant diagonal movement
-                player.vy = isHolding ? (-8 * player.gravityMult) : (8 * player.gravityMult);
+                player.vy = isHolding ? (-10 * player.gravityMult) : (10 * player.gravityMult);
+            }
+            else if (player.mode === "ufo") {
+                player.vy += 0.8 * player.gravityMult; // Slightly floaty gravity for UFO
             }
 
             player.y += player.vy;
 
-            // --- Floor & Ceiling Collisions ---
-            let currentFloor = player.gravityMult === 1 ? groundY : ceilingY;
-            let currentCeiling = player.gravityMult === 1 ? ceilingY : groundY;
-
-            // Hitting the Floor
+            // Boundaries
             if (player.gravityMult === 1 && player.y + player.size >= groundY) {
-                player.y = groundY - player.size;
-                player.vy = 0;
-                player.isGrounded = true;
+                player.y = groundY - player.size; player.vy = 0; player.isGrounded = true;
             } else if (player.gravityMult === -1 && player.y <= ceilingY) {
-                player.y = ceilingY;
-                player.vy = 0;
-                player.isGrounded = true;
+                player.y = ceilingY; player.vy = 0; player.isGrounded = true;
             } else {
                 player.isGrounded = false;
             }
 
-            // Hitting the Ceiling (Kills you if you are a Wave or Ship, acts as wall for Cube)
             if (player.gravityMult === 1 && player.y <= ceilingY) {
-                if (player.mode !== "cube") die(); 
-                else { player.y = ceilingY; player.vy = 0; }
+                if (player.mode !== "cube" && player.mode !== "ufo") die(); else { player.y = ceilingY; player.vy = 0; }
             } else if (player.gravityMult === -1 && player.y + player.size >= groundY) {
-                 if (player.mode !== "cube") die(); 
-                 else { player.y = groundY - player.size; player.vy = 0; }
+                 if (player.mode !== "cube" && player.mode !== "ufo") die(); else { player.y = groundY - player.size; player.vy = 0; }
             }
 
-            // --- Obstacle & Portal Collisions ---
+            // Collisions
             for (let obs of level) {
-                // Spikes
-                if (obs.type === "spike") {
-                    if (player.x < obs.x + 20 && player.x + player.size > obs.x + 10 && player.y + player.size > obs.y - 35) die();
-                } else if (obs.type === "spike_down") {
-                    if (player.x < obs.x + 20 && player.x + player.size > obs.x + 10 && player.y < obs.y + 35) die();
+                if (obs.type.includes("spike")) {
+                    let sY = obs.type === "spike" ? obs.y - 40 : obs.y + 40;
+                    if (player.x < obs.x + 20 && player.x + player.size > obs.x + 10) {
+                        if (obs.type === "spike" && player.y + player.size > obs.y - 35) die();
+                        if (obs.type === "spike_down" && player.y < obs.y + 35) die();
+                    }
                 }
                 
-                // Portals (Using center-point collision for cleaner entering)
-                let playerCenterX = player.x + (player.size/2);
-                if (playerCenterX > obs.x && playerCenterX < obs.x + 40) {
+                let pCX = player.x + (player.size/2);
+                if (pCX > obs.x && pCX < obs.x + 40) {
                     if (obs.type === "portal_ship") player.mode = "ship";
                     if (obs.type === "portal_wave") player.mode = "wave";
                     if (obs.type === "portal_cube") player.mode = "cube";
+                    if (obs.type === "portal_ufo") player.mode = "ufo";
                     if (obs.type === "portal_gravity_flip") player.gravityMult = -1;
                     if (obs.type === "portal_gravity_normal") player.gravityMult = 1;
                 }
@@ -185,15 +191,93 @@
             ctx.save();
             ctx.translate(-cameraX, 0);
 
-            // Draw Ground and Ceiling limits
-            ctx.fillStyle = "#34495e";
+            ctx.fillStyle = "#2d0000";
             ctx.fillRect(cameraX, groundY, canvas.width + 100, canvas.height - groundY);
             ctx.fillRect(cameraX, 0, canvas.width + 100, ceilingY);
 
-            // Draw Obstacles & Portals
             for (let obs of level) {
                 if (obs.type === "spike") {
-                    ctx.fillStyle = "red"; ctx.beginPath(); ctx.moveTo(obs.x, obs.y); ctx.lineTo(obs.x + 15, obs.y - 40); ctx.lineTo(obs.x + 30, obs.y); ctx.fill();
+                    ctx.fillStyle = "#ff4757"; ctx.beginPath(); ctx.moveTo(obs.x, obs.y); ctx.lineTo(obs.x + 15, obs.y - 40); ctx.lineTo(obs.x + 30, obs.y); ctx.fill();
                 } else if (obs.type === "spike_down") {
-                    ctx.fillStyle = "red"; ctx.beginPath(); ctx.moveTo(obs.x, obs.y); ctx.lineTo(obs.x + 15, obs.y + 40); ctx.lineTo(obs.x + 30, obs.y); ctx.fill();
-                } else if (obs.type.startsWith("portal"))
+                    ctx.fillStyle = "#ff4757"; ctx.beginPath(); ctx.moveTo(obs.x, obs.y); ctx.lineTo(obs.x + 15, obs.y + 40); ctx.lineTo(obs.x + 30, obs.y); ctx.fill();
+                } else if (obs.type.startsWith("portal")) {
+                    if (obs.type === "portal_ship") ctx.fillStyle = "#ff9ff3";
+                    if (obs.type === "portal_wave") ctx.fillStyle = "#0abde3";
+                    if (obs.type === "portal_cube") ctx.fillStyle = "#1dd1a1";
+                    if (obs.type === "portal_ufo") ctx.fillStyle = "#f39c12"; // Orange for UFO
+                    if (obs.type === "portal_gravity_flip") ctx.fillStyle = "#feca57";
+                    if (obs.type === "portal_gravity_normal") ctx.fillStyle = "#54a0ff";
+                    
+                    // Make portals look a bit cooler
+                    ctx.beginPath();
+                    ctx.ellipse(obs.x + 10, groundY - 60, 15, 60, 0, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+            }
+
+            ctx.fillStyle = player.color;
+            if (player.mode === "cube" || player.mode === "ufo") {
+                // UFO shape is just a circle for now to distinguish it
+                if (player.mode === "ufo") {
+                    ctx.beginPath(); ctx.arc(player.x + player.size/2, player.y + player.size/2, player.size/2, 0, Math.PI * 2); ctx.fill();
+                } else {
+                    ctx.fillRect(player.x, player.y, player.size, player.size);
+                }
+            }
+            else if (player.mode === "ship") ctx.fillRect(player.x, player.y + 10, player.size + 15, player.size - 15);
+            else if (player.mode === "wave") {
+                ctx.beginPath();
+                let pointY = isHolding ? player.y : player.y + player.size;
+                let flatY = isHolding ? player.y + player.size : player.y;
+                if (player.gravityMult === -1) { pointY = isHolding ? player.y + player.size : player.y; flatY = isHolding ? player.y : player.y + player.size; }
+                ctx.moveTo(player.x + player.size, pointY); ctx.lineTo(player.x, flatY); ctx.lineTo(player.x + player.size, flatY); ctx.fill();
+            }
+
+            ctx.restore();
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        function die() {
+            player.x = player.checkpoint.x;
+            player.y = player.checkpoint.y;
+            player.vy = 0;
+            player.mode = player.checkpoint.mode;
+            player.gravityMult = player.checkpoint.gravityMult;
+            
+            // Restart the song if you die from the beginning!
+            if (player.checkpoint.x === 100) {
+                bgMusic.currentTime = 0; 
+            }
+        }
+
+        function resetLevel() {
+            player.checkpoint = { x: 100, y: groundY - 30, mode: "cube", gravityMult: 1 };
+            die();
+            resumeGame();
+        }
+
+        function togglePause() {
+            isPaused = !isPaused;
+            document.getElementById("pauseMenu").classList.toggle("active", isPaused);
+            if (isPaused) {
+                bgMusic.pause();
+            } else {
+                bgMusic.play().catch(() => console.log("Audio play prevented"));
+            }
+        }
+
+        function resumeGame() {
+            isPaused = false;
+            document.getElementById("pauseMenu").classList.remove("active");
+            bgMusic.play().catch(() => console.log("Audio play prevented by browser. Click to interact."));
+        }
+
+        loop();
+    </script>
+</body>
+</html>
