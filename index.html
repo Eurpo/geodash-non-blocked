@@ -1,0 +1,130 @@
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class PlayerController : MonoBehaviour
+{
+    [Header("Movement & Physics")]
+    public float moveSpeed = 8f;
+    public float jumpForce = 15f;
+    private Rigidbody2D rb;
+    private bool isGrounded;
+    private bool canHitOrb; // Used for Yellow Jump Rings
+
+    [Header("Practice Mode")]
+    public bool isPracticeMode = false;
+    private Vector3 currentCheckpoint;
+
+    [Header("Skins")]
+    public Sprite[] availableSkins; // Drag your skin images in here in the Unity Inspector
+    private SpriteRenderer spriteRenderer;
+
+    void Start()
+    {
+        rb = GetComponent<Rigidbody2D>();
+        spriteRenderer = GetComponent<SpriteRenderer>();
+        
+        // The start of the level is your first checkpoint
+        currentCheckpoint = transform.position;
+
+        // Load the saved skin (Defaults to 0 if none is saved)
+        int savedSkin = PlayerPrefs.GetInt("SelectedSkin", 0);
+        SetSkin(savedSkin);
+    }
+
+    void Update()
+    {
+        // 1. Constant Forward Movement
+        rb.velocity = new Vector2(moveSpeed, rb.velocity.y);
+
+        // 2. Jumping Logic (Works for Ground OR Yellow Orbs)
+        if (Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.UpArrow) || Input.GetMouseButtonDown(0))
+        {
+            if (isGrounded)
+            {
+                rb.velocity = new Vector2(rb.velocity.x, jumpForce);
+            }
+            else if (canHitOrb)
+            {
+                rb.velocity = new Vector2(rb.velocity.x, jumpForce);
+                canHitOrb = false; // Prevents you from double-jumping on the same orb
+            }
+        }
+
+        // 3. Practice Mode Checkpoint Placement
+        if (isPracticeMode && Input.GetKeyDown(KeyCode.Z))
+        {
+            currentCheckpoint = transform.position;
+            Debug.Log("Checkpoint placed!");
+        }
+    }
+
+    // --- Death & Respawn Logic ---
+    public void Die()
+    {
+        if (isPracticeMode)
+        {
+            transform.position = currentCheckpoint;
+            rb.velocity = Vector2.zero; // Stops downward momentum
+        }
+        else
+        {
+            // Restart the whole level
+            SceneManager.LoadScene(SceneManager.GetActiveScene().name);
+        }
+    }
+
+    // --- Skin Changing Logic ---
+    public void SetSkin(int skinIndex)
+    {
+        // Make sure the skin exists in our array
+        if (availableSkins.Length > 0 && skinIndex >= 0 && skinIndex < availableSkins.Length)
+        {
+            spriteRenderer.sprite = availableSkins[skinIndex];
+            PlayerPrefs.SetInt("SelectedSkin", skinIndex); // Save the choice!
+        }
+    }
+
+    // --- Ground Detection ---
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        if (collision.gameObject.CompareTag("Ground") || collision.gameObject.CompareTag("Block"))
+        {
+            isGrounded = true;
+        }
+    }
+
+    void OnCollisionExit2D(Collision2D collision)
+    {
+        if (collision.gameObject.CompareTag("Ground") || collision.gameObject.CompareTag("Block"))
+        {
+            isGrounded = false;
+        }
+    }
+
+    // --- Spikes, Pads, and Orbs Detection ---
+    void OnTriggerEnter2D(Collider2D collision)
+    {
+        if (collision.CompareTag("Spike"))
+        {
+            Die();
+        }
+        else if (collision.CompareTag("YellowPad")) // Automatic Bounce
+        {
+            // Pads bounce you a bit higher than a normal jump
+            rb.velocity = new Vector2(rb.velocity.x, jumpForce * 1.3f); 
+        }
+        else if (collision.CompareTag("YellowOrb")) // Requires clicking
+        {
+            canHitOrb = true;
+        }
+    }
+
+    void OnTriggerExit2D(Collider2D collision)
+    {
+        // If we leave the orb without clicking, we can't use it anymore
+        if (collision.CompareTag("YellowOrb")) 
+        {
+            canHitOrb = false;
+        }
+    }
+}
